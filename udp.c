@@ -6,19 +6,6 @@
  */
 
 
-#include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <errno.h>
-#include <string.h>
-#include <sys/types.h>
-#include <sys/socket.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <limits.h>
-#include <unistd.h>
-
 #include "udp.h"
 
 // simple checks on validity of port string passed
@@ -41,17 +28,18 @@ CheckValidPort(const char * str) {
 	return val;
 }
 
-int
-UDPClientInit(const char * hostIp, const char * hostPort) {
-	int status, sockFd;
+udp_connection_t *
+UDPConnectionInit(const char * hostIp, const char * hostPort) {
+	int status = STATUS_BAD;
+	int sockFd = SOCKET_CLOSED;
 	addrinfo hints;
 	addrinfo * hostInfo;
 	addrinfo * cur;
 	CheckValidPort(hostPort);
-	memset(&hints, 0, sizeof hints); // make sure the struct is empty
+	memset(&hints, 0, sizeof(hints)); // make sure the struct is empty
 	hints.ai_family = AF_UNSPEC;     // don't care IPv4 or IPv6
 	hints.ai_socktype = SOCK_DGRAM; // UDP sockets
-	hints.ai_flags = AI_PASSIVE;
+	hints.ai_flags = AI_PASSIVE;	// use this IP
 	hints.ai_protocol = 0;
 	hints.ai_canonname = NULL;
 	hints.ai_next = NULL;
@@ -71,22 +59,24 @@ UDPClientInit(const char * hostIp, const char * hostPort) {
 			break; // successful connection
 		}
 		close(sockFd);
+		sockFd = SOCKET_CLOSED;
 	}
 
 	if (cur==NULL) {
 		fprintf(stderr, "Could not connect socket\n");
 		exit(EXIT_FAILURE);
 	}
-
-	udp_connection_t ret;
-
-
-	freeaddrinfo(hostInfo);
-
-	return sockFd;
+	udp_connection_t * ret = malloc(sizeof(udp_connection_t));
+	ret->hostInfo = hostInfo;
+	ret->socketFd = sockFd;
+//	ret->hostAddrLen = sizeof(hostInfo);
+	return ret;
 }
 
 void
-UDPClientSend(int sockFd) {
-
+UDPConnectionFree(udp_connection_t * conn) {
+	freeaddrinfo(conn->hostInfo);
+	if (conn->socketFd != SOCKET_CLOSED)
+		close(conn->socketFd);
+	free(conn);
 }
