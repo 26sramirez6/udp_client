@@ -22,11 +22,10 @@
 #include <limits.h>
 #include <unistd.h>
 
-#define SMALLBUF 128
 #define TINYBUF 16
-#define MILLION 1000000
 #define SMALLBUF 256
-#define TINYBUF 16
+#define MIDBUF 512
+#define MILLION 1000000
 #define SOCKET_CLOSED -1
 #define STATUS_BAD -1
 #define MAX(a, b) a > b ? a : b
@@ -44,7 +43,6 @@ typedef struct timeval timeval;
 typedef struct udp_connection_t {
 	int socketFd;
 	addrinfo * hostInfo;
-//	socklen_t hostAddrLen;
 } udp_connection_t;
 
 void

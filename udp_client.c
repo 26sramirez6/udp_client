@@ -20,6 +20,21 @@ typedef struct udp_host_config_t {
 	unsigned timeout;
 } udp_host_config_t;
 
+typedef struct ping_results_t {
+	unsigned successfulReplies;
+	double maxElapsed;
+	double minElapsed;
+	double avgElapsed;
+	double totalElapsed;
+}ping_results_t;
+
+typedef struct thread_context_t {
+	udp_host_config_t * config;
+	pthread_mutex_t * mutex;
+	ping_results_t * results;
+	unsigned sequenceId;
+} thread_context_t;
+
 static void
 InitUDPConfig(udp_host_config_t * config) {
 	memset(config->hostIP, 0, SMALLBUF);
@@ -47,19 +62,6 @@ FillConfig(udp_host_config_t * config,
 	}
 }
 
-typedef struct ping_results_t {
-	unsigned successfulReplies;
-	double maxElapsed;
-	double minElapsed;
-	double avgElapsed;
-}ping_results_t;
-
-typedef struct thread_context_t {
-	udp_host_config_t * config;
-	pthread_mutex_t * mutex;
-	ping_results_t * results;
-} thread_context_t;
-
 static timestamp_t
 GetTimestamp() {
 	timeval now;
@@ -67,7 +69,14 @@ GetTimestamp() {
 	return now.tv_sec + (timestamp_t)(now.tv_sec * MILLION);
 }
 
-void
+static long long
+GetMilliSeconds() {
+	timeval now;
+	gettimeofday(&now, NULL);
+	return now.tv_sec*1000 + now.tv_usec/1000;
+}
+
+static void
 WorkerThread(void * arg) {
 	thread_context_t * context = (thread_context_t *) arg;
 
@@ -78,6 +87,11 @@ WorkerThread(void * arg) {
 
 	// send ping
 	byte buf[SMALLBUF] = {0};
+
+	const int n = snprintf(buf, SMALLBUF,
+		"PING %d lld%\r\n", context->sequenceId,
+		GetMilliSeconds());
+	assert(n > 0);
 
 	ssize_t numBytes;
 
@@ -107,14 +121,14 @@ WorkerThread(void * arg) {
 		// time stamp
 		timestamp_t t1 = GetTimestamp();
 		double elapsed = t1 - t0;
-		if (elapsed < context->config.timeout) {
-			pthread_mutex_lock(context->mutex);
-			++context->results->successfulReplies;
-			context->results->maxElapsed = MAX(elapsed, context->results->maxElapsed);
-			context->results->minElapsed = MIN(elapsed, context->results->minElapsed);
-			context->results->avgElapsed += elapsed; // will be averaged later
-			pthread_mutex_unlock(context->mutex);
-		}
+		pthread_mutex_lock(context->mutex);
+		++context->results->successfulReplies;
+		context->results->maxElapsed = MAX(elapsed, context->results->maxElapsed);
+		context->results->minElapsed = MIN(elapsed, context->results->minElapsed);
+		context->results->avgElapsed += elapsed; // will be averaged later
+		printf("PONG %s: seq=%d time=%lf\n", context->config->hostIP,
+				context->sequenceId, elapsed);
+		pthread_mutex_unlock(context->mutex);
 	} else if (ready==0) {
 		printf("WorkerThread:: Timeout occured\n");
 	} else {
@@ -124,35 +138,49 @@ WorkerThread(void * arg) {
 	UDPConnectionFree(&conn);
 }
 
-int main(int argc, char ** argv) {
+void
+PrintStats(udp_host_config_t * config, ping_results_t * results) {
+	double loss = results->successfulReplies / config->pingCount;
+	double avg = results->avgElapsed / results->successfulReplies;
+	printf("--- %s ping statistics ---\n"
+		"%d transmitted, %d received, %lf loss, time %lfms\n"
+		"rtt min/avg/max = %lf/%lf/%lf ms\n",
+		config->hostIP, config->pingCount, results->totalElapsed,
+		results->minElapsed, results->maxElapsed, avg);
+}
+
+int
+main(int argc, char ** argv) {
 	if (argc != 6) {
-		fprintf(stderr, "Usage: udp_client <server_ip> <server_port> <count> <period> <timeout>\n");
+		fprintf(stderr, "Usage: udp_client <server_ip> "
+			"<server_port> <count> <period> <timeout>\n");
 		exit(EXIT_FAILURE);
 	}
 
 	udp_host_config_t config;
-	thread_context_t context;
 	ping_results_t results;
 	memset(&results, 0, sizeof(results)); // 0 out everything
 	pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 	InitUDPConfig(&config);
 	FillConfig(&config, argc, argv);
-	context.config = &config;
-	context.mutex = &mutex;
-	context.results = &results;
-
+	pthread_t * workers = malloc(config.pingCount*sizeof(pthread_t));
+	thread_context_t * contexts = malloc(config.pingCount*sizeof(thread_context_t));
+	timestamp_t t0 = GetTimestamp();
 	for (unsigned i=0; i<config.pingCount; ++i) {
-		timestamp_t t0 = GetTimestamp();
-		pthread_t worker;
-		pthread_create(&worker, NULL, WorkerThread, &context);
+		thread_context_t context = contexts[i];
+		context.config = &config;
+		context.results = &results;
+		context.mutex = &mutex;
+		context.sequenceId = i;
+		pthread_create(&workers[i], NULL, WorkerThread, &context);
 		sleep(config.period);
-		timestamp_t t1 = GetTimestamp();
-		// elapsed time will effectively be 0 since
-		// the code above takes no time to run
-		// but just to be thorough...
-		double elapsed = t1 - t0;
-		if (elapsed < config.period)
-			sleep((config.period - elapsed)/1000);
-
 	}
+	for (unsigned i=0; i<config.pingCount; ++i) {
+		pthread_join(workers[i], NULL);
+	}
+	timestamp_t t1 = GetTimestamp();
+	results.totalElapsed = t1 - t0;
+	PrintStats(&results);
+	free(workers);
+	free(contexts);
 }
