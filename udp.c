@@ -28,8 +28,13 @@ CheckValidPort(const char * str) {
 	return val;
 }
 
+// Client side UDP connection initiialization.
+// Constructs a socket. Does not call bind or connect
+// since this is UDP. returns the udp connection object
+// which holds info for the main program
 udp_connection_t *
 UDPConnectionInit(const char * hostIp, const char * hostPort) {
+	(void)hostIp;
 	int status = STATUS_BAD;
 	int sockFd = SOCKET_CLOSED;
 	addrinfo hints;
@@ -50,26 +55,23 @@ UDPConnectionInit(const char * hostIp, const char * hostPort) {
 		exit(EXIT_FAILURE);
 	}
 
-	// let the kernel choose the local port with connect() instead of bind()
 	for (cur=hostInfo; cur!=NULL; cur=cur->ai_next) {
 		sockFd = socket(cur->ai_family,	cur->ai_socktype, cur->ai_protocol);
 		if (sockFd == -1) {
+			perror("socket");
 			continue; // unsuccessful address structure
-		} else if (connect(sockFd, cur->ai_addr, cur->ai_addrlen)==0) {
-			break; // successful connection
 		}
-		close(sockFd);
-		sockFd = SOCKET_CLOSED;
+		break; // successful connection
 	}
 
 	if (cur==NULL) {
-		fprintf(stderr, "Could not connect socket\n");
+		fprintf(stderr, "Could not create socket\n");
 		exit(EXIT_FAILURE);
 	}
+
 	udp_connection_t * ret = malloc(sizeof(udp_connection_t));
 	ret->hostInfo = hostInfo;
 	ret->socketFd = sockFd;
-//	ret->hostAddrLen = sizeof(hostInfo);
 	return ret;
 }
 

@@ -21,6 +21,8 @@
 #include <netdb.h>
 #include <limits.h>
 #include <unistd.h>
+#include <sys/time.h>
+#include <assert.h>
 
 #define TINYBUF 16
 #define SMALLBUF 256
@@ -35,9 +37,6 @@ typedef unsigned char byte;
 typedef struct addrinfo addrinfo;
 typedef struct sockaddr_storage sockaddr_storage;
 typedef struct sockaddr sockaddr;
-typedef struct thread_context_t thread_context_t;
-typedef struct timestamp_t timestamp_t;
-typedef struct timeval timeval;
 
 
 typedef struct udp_connection_t {
@@ -45,11 +44,8 @@ typedef struct udp_connection_t {
 	addrinfo * hostInfo;
 } udp_connection_t;
 
-void
-UDPBroadcast();
-
 udp_connection_t *
-UDPClientInit(const char * hostIp, const char * hostPort);
+UDPConnectionInit(const char * hostIp, const char * hostPort);
 
 void
 UDPConnectionFree(udp_connection_t * conn);
